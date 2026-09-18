@@ -1,27 +1,21 @@
-import os
-import shutil
-import uuid
-
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+import shutil
+import os
+import uuid
 
-from .database import engine, Base, get_db
-from .models import Report
-from .ai_service import analyze_image
-from .report_service import create_report
+# Import your local modules
+from app import models, database, ai_service
+from app.database import get_db
 
+# Initialize the database
+models.Base.metadata.create_all(bind=database.engine)
 
-# Initialize database tables
-Base.metadata.create_all(bind=engine)
+# Initialize the FastAPI app
+app = FastAPI()
 
-app = FastAPI(
-    title="CivicLens AI",
-    description="AI-powered civic issue reporting system",
-    version="1.0"
-)
-
-# Configure CORS so your React frontend can talk to this backend
+# Allow React frontend to communicate with this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,90 +24,106 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Create the uploads directory if it doesn't exist
+os.makedirs("uploads", exist_ok=True)
 
-
-@app.get("/")
-def root():
-    return {"message": "CivicLens AI API is running"}
-
-
-@app.post("/api/reports")
-async def create_civic_report(
-    image: UploadFile = File(...),
-    latitude: float = Form(None),
-    longitude: float = Form(None),
-    db: Session = Depends(get_db)
-):
-    extension = os.path.splitext(image.filename)[1]
-    filename = f"{uuid.uuid4()}{extension}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-
-    # 1. Save the uploaded file safely
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(image.file, buffer)
-        
-    # Explicitly close the FastAPI upload file to prevent Windows locks
-    image.file.close() 
-
-    # 2. Analyze the image with AI
-    try:
-        ai_result = analyze_image(file_path)
-        
-    except Exception as e:
-        # If AI fails, attempt to delete the corrupted/unused image
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        except PermissionError:
-            # Fixes WinError 32: If the AI model crashed mid-read, it might leave the file locked.
-            # We catch it here so it doesn't break our HTTP 500 response below.
-            print(f"Warning: Could not delete {file_path}. File is locked by another process.")
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"AI analysis failed: {str(e)}"
-        )
-
-    # 3. Save the final report to the database
-    report = create_report(
-        db=db,
-        image_path=file_path,
-        ai_result=ai_result,
-        latitude=latitude,
-        longitude=longitude
-    )
-
-    return report
-
+# ---------------------------------------------------------
+# ROUTES
+# ---------------------------------------------------------
 
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
-    reports = db.query(Report).order_by(Report.created_at.desc()).all()
-    return reports
+    return db.query(models.Report).order_by(models.Report.id.desc()).all()
 
-
-@app.get("/api/reports/{report_id}")
-def get_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return report
-
-
-@app.patch("/api/reports/{report_id}/status")
-def update_status(
-    report_id: int,
-    status: str = Form(...),
+@app.post("/api/reports")
+async def create_report(
+    file: UploadFile = File(...),
+    lat: float = Form(None), 
+    lng: float = Form(None),
     db: Session = Depends(get_db)
 ):
-    report = db.query(Report).filter(Report.id == report_id).first()
+    try:
+        # Create a unique filename to prevent Windows file-locking issues
+        file_ext = file.filename.split(".")[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_ext}"
+        file_path = f"uploads/{unique_filename}"
+        
+        # Save the uploaded file safely
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Run the AI Analysis
+        ai_data = ai_service.analyze_image(file_path)
+        
+        # 1. Handle complete failure
+        if not ai_data:
+            raise HTTPException(status_code=500, detail="AI analysis failed completely.")
+
+        # 2. Handle specific AI service errors (like Rate Limits)
+        if "error" in ai_data:
+            if ai_data["error"] == "rate_limit":
+                raise HTTPException(status_code=429, detail="High network traffic. Please wait 60 seconds and try again.")
+            else:
+                raise HTTPException(status_code=500, detail=ai_data.get("message", "Failed to process image."))
+
+        # Create the database record with GPS coordinates
+        new_report = models.Report(
+            issue_type=ai_data.get("issue_type", "Unknown"),
+            severity=ai_data.get("severity", "Medium"),
+            description=ai_data.get("description", "No description provided."),
+            suggested_action=ai_data.get("suggested_action", ""),
+            image_path=file_path,
+            status="Pending",
+            latitude=lat,
+            longitude=lng
+        )
+        
+        db.add(new_report)
+        db.commit()
+        db.refresh(new_report)
+        
+        # Return merged DB data and B2B metrics to the frontend
+        return {
+            "id": new_report.id,
+            "issue_type": new_report.issue_type,
+            "severity": new_report.severity,
+            "status": new_report.status,
+            "description": new_report.description,
+            "suggested_action": new_report.suggested_action,
+            "priority_rating": ai_data.get("priority_rating", 5.0),
+            "sla_estimate": ai_data.get("sla_estimate", "3-5 Days"),
+            "confidence": ai_data.get("confidence", 0.90)
+        }
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions so FastAPI actually sends the 429 status code
+        raise
+    except Exception as e:
+        print(f"Error in create_report: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal Server Error during upload")
+
+@app.patch("/api/reports/{report_id}/status")
+def update_status(report_id: int, status: str = Form(...), db: Session = Depends(get_db)):
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-
     report.status = status
     db.commit()
-    db.refresh(report)
+    return {"message": "Status updated"}
+
+@app.delete("/api/reports/{report_id}")
+def delete_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
     
-    return report
+    # Attempt to delete the image file to save space
+    if os.path.exists(report.image_path):
+        try:
+            os.remove(report.image_path)
+        except:
+            pass
+            
+    db.delete(report)
+    db.commit()
+    return {"message": "Deleted"}

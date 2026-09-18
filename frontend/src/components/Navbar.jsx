@@ -1,4 +1,6 @@
 import { NavLink } from "react-router-dom";
+// 1. Import your downloaded logo image here
+import logoImage from "../assets/logo.png"; 
 
 function Navbar() {
   // Inline styles for active vs inactive links
@@ -11,8 +13,16 @@ function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span style={{ color: '#1976d2' }}>✦</span> CivicLens
+      <div className="logo" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* 2. Replaced the text star with your actual image file */}
+        <img 
+          src={logoImage} 
+          alt="CivicLens Logo" 
+          style={{ height: "32px", width: "auto", objectFit: "contain" }} 
+        />
+        <span style={{ fontWeight: "800", color: "#0f172a", letterSpacing: "-0.5px" }}>
+          CivicLens
+        </span>
       </div>
 
       <div className="nav-links" style={{ height: '100%', alignItems: 'flex-end' }}>
