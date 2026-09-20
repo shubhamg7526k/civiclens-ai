@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API = axios.create({
-    baseURL: "https://civiclens-ai-iota.vercel.app/api"
+    baseURL: "https://civiclens-ai.wasmer.app"
 });
 
 export async function submitReport(image, latitude, longitude) {
