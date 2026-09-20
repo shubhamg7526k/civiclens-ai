@@ -1,70 +1,77 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import "leaflet/dist/leaflet.css";
 
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
+// Define a custom Blue Icon for RESOLVED issues
+const blueIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
 });
-L.Marker.prototype.options.icon = DefaultIcon;
 
-// Component that automatically fits the map to show all pins
-function MapBounds({ reports }) {
-  const map = useMap();
-  useEffect(() => {
-    if (reports.length > 0) {
-      const bounds = L.latLngBounds(reports.map(r => [r.latitude, r.longitude]));
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-    }
-  }, [reports, map]);
-  return null;
-}
+// Define a custom Red Icon for PENDING (Unresolved) issues
+const redIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
 function MapView({ reports }) {
-  const validReports = reports.filter(
-    (r) => r.latitude !== null && r.longitude !== null
-  );
+  // Center the map on the first report, or default to Mumbai (19.0760, 72.8777)
+  const defaultCenter = [19.0760, 72.8777];
+  const center = reports.length > 0 && reports[0].latitude 
+    ? [parseFloat(reports[0].latitude), parseFloat(reports[0].longitude)] 
+    : defaultCenter;
 
   return (
-    <div style={{ borderRadius: '15px', overflow: 'hidden', border: '1px solid #e4e8ef', marginTop: '10px' }}>
-      <MapContainer
-        center={[19.0760, 72.8777]} // Default fallback
-        zoom={11}
-        style={{ height: "450px", width: "100%", zIndex: 1 }}
-      >
-        {/* Bright, Colorful OpenStreetMap Tile Layer */}
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+    <MapContainer 
+      center={center} 
+      zoom={11} 
+      style={{ height: '500px', width: '100%', borderRadius: '8px', zIndex: 1 }}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      />
+      
+      {reports.map((report) => {
+        // Skip rendering if coordinates are missing
+        if (!report.latitude || !report.longitude) return null;
         
-        <MapBounds reports={validReports} />
+        // Determine if the issue is resolved to set the correct icon color
+        const isResolved = report.status?.toLowerCase() === 'resolved';
 
-        {validReports.map((report) => (
-          <Marker key={report.id} position={[report.latitude, report.longitude]}>
+        return (
+          <Marker 
+            key={report.id} 
+            position={[parseFloat(report.latitude), parseFloat(report.longitude)]}
+            icon={isResolved ? blueIcon : redIcon}
+          >
             <Popup>
-              <div style={{ fontFamily: 'Inter, sans-serif', width: '200px' }}>
-                <strong style={{ display: 'block', fontSize: '14px', marginBottom: '8px', color: '#0f172a' }}>
+              <div style={{ padding: '5px' }}>
+                <strong style={{ display: 'block', fontSize: '14px', marginBottom: '5px' }}>
                   {report.issue_type}
                 </strong>
-                <span style={{ fontSize: '12px', color: '#475569', display: 'block', marginBottom: '4px' }}>
-                  Severity: <strong style={{ color: '#dc2626' }}>{report.severity}</strong>
-                </span>
-                <span style={{ fontSize: '12px', color: '#475569', display: 'block' }}>
-                  Status: <strong style={{ color: report.status === 'Resolved' ? '#16a34a' : '#2563eb' }}>{report.status}</strong>
-                </span>
+                <div style={{ fontSize: '12px', color: '#475569', marginBottom: '8px' }}>
+                  <strong>ID:</strong> #{report.id}<br/>
+                  <strong>Priority:</strong> {report.severity}<br/>
+                  <strong>Status: </strong> 
+                  <span style={{ color: isResolved ? '#16a34a' : '#dc2626', fontWeight: 'bold' }}>
+                    {report.status}
+                  </span>
+                </div>
               </div>
             </Popup>
           </Marker>
-        ))}
-      </MapContainer>
-    </div>
+        );
+      })}
+    </MapContainer>
   );
 }
 

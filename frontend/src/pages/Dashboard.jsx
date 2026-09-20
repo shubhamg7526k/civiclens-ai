@@ -5,6 +5,9 @@ import MapView from "../components/MapView";
 function Dashboard() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // NEW: State to track which report is currently expanded to show full details
+  const [expandedId, setExpandedId] = useState(null);
 
   useEffect(() => {
     loadReports();
@@ -48,11 +51,9 @@ function Dashboard() {
     const to = "publicworks@mumbai.gov.in";
     const subject = encodeURIComponent(`URGENT: ${report.severity} Infrastructure Issue - ${report.issue_type}`);
     
-    // Round coordinates to 6 decimal places for a cleaner look
     const lat = report.latitude ? parseFloat(report.latitude).toFixed(6) : "N/A";
     const lng = report.longitude ? parseFloat(report.longitude).toFixed(6) : "N/A";
 
-    // Enterprise Plain Text Layout
     const body = encodeURIComponent(`🚨 CIVICLENS AI: AUTOMATED DISPATCH TICKET 🚨
 ======================================================
 TRACKING ID    : #${report.id}
@@ -91,9 +92,6 @@ Please review the attached image file for visual verification.
   const pending = reports.filter(r => r.status?.toLowerCase() === "pending").length;
   const resolved = reports.filter(r => r.status?.toLowerCase() === "resolved").length;
 
-  // ========================================================
-  // GET OWNED REPORTS: Read browser storage to determine ownership
-  // ========================================================
   const myReports = JSON.parse(localStorage.getItem("my_civic_reports") || "[]");
 
   return (
@@ -146,72 +144,116 @@ Please review the attached image file for visual verification.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
-              {reports.map((report) => (
-                <div key={report.id} style={{ padding: "16px", border: "1px solid #cbd5e1", borderRadius: "8px", background: "#f8fafc", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
-                  
-                  {/* UPGRADED BOLD HEADINGS */}
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
-                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "900", color: "#0f172a", letterSpacing: "0.5px", textTransform: "uppercase" }}>
-                      {report.issue_type || "Unknown Issue"}
-                    </h3>
-                    <span style={{ fontSize: "12px", fontWeight: "bold", color: "#475569", background: "#e2e8f0", padding: "3px 8px", borderRadius: "4px" }}>
-                      ID: #{report.id}
-                    </span>
-                  </div>
-                  
-                  <p style={{ fontSize: "13px", fontWeight: "500", color: "#334155", margin: "0 0 12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {report.description}
-                  </p>
-                  
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      <span className={`severity ${getSeverityClass(report.severity)}`}>
-                        {report.severity || "Unknown"}
-                      </span>
-                      <span className={`severity ${report.status?.toLowerCase() === 'resolved' ? 'status-resolved' : 'status-pending'}`}>
-                        {report.status || "Pending"}
+              {reports.map((report) => {
+                const isExpanded = expandedId === report.id;
+
+                return (
+                  <div key={report.id} style={{ padding: "16px", border: "1px solid #cbd5e1", borderRadius: "8px", background: "#f8fafc", boxShadow: "0 2px 4px rgba(0,0,0,0.02)", transition: "all 0.3s ease" }}>
+                    
+                    {/* CARD HEADER */}
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", alignItems: "center" }}>
+                      <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "900", color: "#0f172a", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                        {report.issue_type || "Unknown Issue"}
+                      </h3>
+                      <span style={{ fontSize: "12px", fontWeight: "bold", color: "#475569", background: "#e2e8f0", padding: "3px 8px", borderRadius: "4px" }}>
+                        ID: #{report.id}
                       </span>
                     </div>
                     
-                    {/* CONDITIONAL RENDER: ONLY SHOW BUTTONS IF OWNED BY THIS BROWSER */}
-                    {myReports.includes(report.id) ? (
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button 
-                          onClick={() => handleDispatch(report)}
-                          style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", background: "#0f172a", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", transition: "opacity 0.2s" }}
-                          onMouseOver={(e) => e.target.style.opacity = 0.8}
-                          onMouseOut={(e) => e.target.style.opacity = 1}
-                        >
-                          ✉️ Dispatch
-                        </button>
-
-                        <button 
-                          onClick={() => handleStatusChange(report.id, report.status)}
-                          style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", border: "none", background: report.status === "Pending" ? "#16a34a" : "#64748b", borderRadius: "6px", cursor: "pointer", transition: "opacity 0.2s" }}
-                          onMouseOver={(e) => e.target.style.opacity = 0.8}
-                          onMouseOut={(e) => e.target.style.opacity = 1}
-                        >
-                          {report.status === "Pending" ? "✓ Resolve" : "↺ Reopen"}
-                        </button>
+                    {/* DYNAMIC CONTENT AREA: Truncated vs Expanded */}
+                    {isExpanded ? (
+                      <div style={{ animation: "fadeIn 0.3s ease-in", marginTop: "12px", marginBottom: "15px" }}>
+                        <p style={{ fontSize: "14px", color: "#334155", margin: "0 0 12px", lineHeight: "1.5" }}>
+                          <strong>Technical Assessment:</strong><br/>
+                          {report.description}
+                        </p>
                         
-                        <button 
-                          onClick={() => handleDelete(report.id)}
-                          style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", border: "none", background: "#dc2626", borderRadius: "6px", cursor: "pointer", transition: "opacity 0.2s" }}
-                          onMouseOver={(e) => e.target.style.opacity = 0.8}
-                          onMouseOut={(e) => e.target.style.opacity = 1}
-                        >
-                          🗑️ Delete
-                        </button>
+                        {report.suggested_action && (
+                          <div style={{ background: '#eef5ff', borderLeft: '3px solid #0d47a1', padding: '10px', borderRadius: '4px', marginBottom: "12px" }}>
+                            <p style={{ margin: 0, fontSize: "13px", color: "#172033" }}>
+                              <strong>⚙️ Recommended Action:</strong> {report.suggested_action}
+                            </p>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', padding: '12px', background: 'white', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Est. SLA</div>
+                            <strong style={{ fontSize: '13px' }}>{report.sla_estimate || "N/A"}</strong>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Priority</div>
+                            <strong style={{ fontSize: '13px', color: '#dc2626' }}>{report.priority_rating || "N/A"}/10</strong>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Location</div>
+                            <strong style={{ fontSize: '13px' }}>
+                              {report.latitude ? `${parseFloat(report.latitude).toFixed(4)}, ${parseFloat(report.longitude).toFixed(4)}` : "N/A"}
+                            </strong>
+                          </div>
+                        </div>
                       </div>
                     ) : (
-                      <span style={{ fontSize: "11px", color: "#94a3b8", fontStyle: "italic", padding: "6px 0" }}>
-                        Public Report (View Only)
-                      </span>
+                      <p style={{ fontSize: "13px", fontWeight: "500", color: "#334155", margin: "0 0 12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {report.description}
+                      </p>
                     )}
+                    
+                    {/* CARD FOOTER & ACTIONS */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", borderTop: isExpanded ? "1px solid #e2e8f0" : "none", paddingTop: isExpanded ? "12px" : "0" }}>
+                      
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        <span className={`severity ${getSeverityClass(report.severity)}`}>
+                          {report.severity || "Unknown"}
+                        </span>
+                        <span className={`severity ${report.status?.toLowerCase() === 'resolved' ? 'status-resolved' : 'status-pending'}`}>
+                          {report.status || "Pending"}
+                        </span>
+                      </div>
+                      
+                      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                        
+                        {/* THE NEW EXPAND/COLLAPSE BUTTON */}
+                        <button 
+                          onClick={() => setExpandedId(isExpanded ? null : report.id)}
+                          style={{ background: "transparent", border: "none", color: "#0d47a1", fontSize: "12px", fontWeight: "bold", cursor: "pointer", padding: "4px 8px" }}
+                        >
+                          {isExpanded ? "Collapse ⬆️" : "Read Full Report ⬇️"}
+                        </button>
 
+                        {/* ADMIN ACTIONS (Only visible if owned by browser) */}
+                        {myReports.includes(report.id) ? (
+                          <div style={{ display: "flex", gap: "6px", borderLeft: "1px solid #cbd5e1", paddingLeft: "10px" }}>
+                            <button 
+                              onClick={() => handleDispatch(report)}
+                              style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", background: "#0f172a", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer" }}
+                            >
+                              ✉️
+                            </button>
+                            <button 
+                              onClick={() => handleStatusChange(report.id, report.status)}
+                              style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", border: "none", background: report.status === "Pending" ? "#16a34a" : "#64748b", borderRadius: "6px", cursor: "pointer" }}
+                            >
+                              {report.status === "Pending" ? "✓" : "↺"}
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(report.id)}
+                              style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "600", color: "white", border: "none", background: "#dc2626", borderRadius: "6px", cursor: "pointer" }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: "11px", color: "#94a3b8", fontStyle: "italic", borderLeft: "1px solid #cbd5e1", paddingLeft: "10px" }}>
+                            View Only
+                          </span>
+                        )}
+                      </div>
+
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
